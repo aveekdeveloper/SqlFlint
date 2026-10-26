@@ -43,7 +43,6 @@ Vega-Lite templates), so you can write `-- @viz: waterfall`, `-- @viz: gauge`,
 | `@y` | y | Measure on the y axis |
 | `@groupby` / `@series` | color | Series / legend column |
 | `@value` | color (heatmap) | Measure column for heatmap colour |
-| `@z` / `@size` | size | Bubble / pie size |
 
 If an annotation references a column that is not in the query result, the
 compiler emits a `MISSING_COLUMN` error and skips that annotation. If no
@@ -53,21 +52,18 @@ categorical becomes the series.
 
 ## Aggregation
 
-| Annotation | Values | Default |
-|------------|--------|---------|
-| `@aggregate` | `sum`, `avg`, `min`, `max`, `count`, `first` | `sum` |
+There is no aggregation annotation. Aggregate in SQL with `GROUP BY`; that is
+the source of truth. When the same key (x + series) appears more than once in
+the data, the compiler sums the duplicate cells and emits a `DUPLICATE_CELLS`
+warning so the aggregation is never silent.
 
-Aggregation applies when the same key (x + series) appears more than once in
-the data: duplicate cells are summed and a `DUPLICATE_CELLS` warning is
-emitted. Prefer aggregating in SQL with `GROUP BY`; the compiler keeps this as
-a safety net.
-
-## Layout and stacking
+## Stacking
 
 | Annotation | Values | Notes |
 |------------|--------|-------|
 | `@stack` | `true`, `false`, or a stack name | `true` stacks into one bar; a name groups stacks |
-| `@zoom` | `inside`, `slider` (comma-separated) | Adds ECharts dataZoom |
+
+`@stack` only matters for bar charts with a series.
 
 ## Presentation
 
@@ -76,7 +72,9 @@ a safety net.
 | `@title` | Chart headline |
 | `@subtitle` | Deck / description |
 | `@theme` | A Flint theme preset id (`powerbi-light`, `nyt`, `economist`, …) |
-| `@echarts_override` | JSON object deep-merged into the ECharts output |
+
+Themes render on the Vega-Lite and Plotly backends; ECharts output ignores
+them. For anything else, use the `@flint` escape hatch below.
 
 ## Semantic types
 
@@ -114,13 +112,19 @@ Every compile returns a `diagnostics` array. Codes you may see:
 - `DUPLICATE_CELLS` (warning) — duplicate key cells were summed
 - `PIE_NEGATIVE` (warning) — pie chart with negative values
 - `PIE_TOO_MANY_SLICES` (warning) — more than 8 slices
+- `PIE_IGNORES_SERIES` (warning) — `@groupby` on a pie chart
+- `HEATMAP_IGNORES_SERIES` (warning) — `@groupby` on a heatmap
+- `HEATMAP_DIMENSION_IS_MEASURE` (warning) — a heatmap dimension is a measure
 - `STACKED_MIXED_SIGNS` (warning) — stacking positive and negative values
 - `ID_AS_SERIES` (warning) — near-unique column used as a series
 - `TEMPORAL_AS_MEASURE` (warning) — temporal column used as the measure
 - `MEASURE_AS_X` (warning) — measure used on the category axis
-- `HIGH_CARDINALITY_X` (info) — more than 30 categories on x
-- `DEFAULT_ENCODINGS` (info) — encodings were inferred with no annotations
 - `UNKNOWN_THEME`, `UNKNOWN_SEMANTIC_TYPE`, `INVALID_FLINT_OVERRIDE` (warning)
+- `HIGH_CARDINALITY_X` (info) — more than 30 categories on x
+- `SINGLE_POINT` (info) — one category on a line or area chart
+- `AMBIGUOUS_NUMERIC` (info) — few distinct values; may be a category
+- `DEFAULT_ENCODINGS` (info) — encodings were inferred with no annotations
+- `CHART_TYPE_MATCHED` (info) — `@viz` fuzzy-matched a Flint template
 
 ## Output
 

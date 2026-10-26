@@ -73,8 +73,8 @@
       .diag .code { font-family: var(--mono); font-weight: 600; margin-right: 6px; }
       .tile { background: var(--pbi-card); border: 1px solid var(--pbi-border); border-radius: var(--radius); padding: 10px; box-shadow: var(--pbi-shadow); }
       .tile .title { font-size: 13px; font-weight: 600; margin-bottom: 6px; }
-      .tile .chart { width: 100%; height: 220px; }
-      .dashboard-canvas { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 16px; min-height: 260px; padding: 12px; border: 2px dashed var(--pbi-border); border-radius: var(--radius); }
+      .tile .chart { width: 100%; height: 320px; }
+      .dashboard-canvas { display: grid; grid-template-columns: repeat(auto-fill, minmax(400px, 1fr)); gap: 20px; min-height: 360px; padding: 16px; border: 2px dashed var(--pbi-border); border-radius: var(--radius); }
       .status { font-size: 12px; color: var(--pbi-muted); margin-top: 6px; }
       .status.err { color: #d13438; }
       .hidden { display: none; }
@@ -210,8 +210,12 @@ ORDER BY month, region;</textarea>
     <!-- Stage 3 -->
     <section class="stage" id="stage-3">
       <div class="card">
-        <h2>Dashboard canvas</h2>
+        <div class="row" style="justify-content:space-between;align-items:center;">
+          <h2 style="margin:0;">Dashboard canvas</h2>
+          <button id="clearDashboardBtn">Clear all</button>
+        </div>
         <div class="status">Pin charts from stage 2 to build a simple canvas. Each tile renders independently.</div>
+        <div class="status" id="dashboardStatus"></div>
         <div class="dashboard-canvas" id="dashboardCanvas">
           <div class="status" style="grid-column:1/-1;text-align:center;padding:40px;">No charts pinned yet. Go to stage 2 and click "Pin to dashboard".</div>
         </div>
@@ -300,6 +304,9 @@ ORDER BY month, region;</textarea>
           const stage = btn.dataset.stage;
           document.querySelectorAll('.stage').forEach((s) => s.classList.remove('active'));
           document.getElementById('stage-' + stage).classList.add('active');
+          if (stage === '3') {
+            setTimeout(() => dashboardTiles.forEach((t) => { try { t.inst.resize(); } catch (e) {} }), 50);
+          }
           if (stage === '2' && !sql2Dirty) {
             const carried = (currentSql || document.getElementById('sql1').value || '').trim();
             if (carried) {
@@ -595,33 +602,87 @@ ORDER BY month, region;`;
       });
 
       // ---------- stage 3: dashboard ----------
+
+      function updateDashboardStatus() {
+        const el = document.getElementById('dashboardStatus');
+        const n = dashboardTiles.length;
+        el.textContent = n === 0 ? '' : `${n} chart${n === 1 ? '' : 's'} pinned.`;
+      }
+
+      function showEmptyState() {
+        const canvas = document.getElementById('dashboardCanvas');
+        if (canvas.querySelector('.tile')) return;
+        if (canvas.querySelector('.status[style*="grid-column"]')) return;
+        const empty = document.createElement('div');
+        empty.className = 'status';
+        empty.style.cssText = 'grid-column:1/-1;text-align:center;padding:40px;';
+        empty.textContent = 'No charts pinned yet. Go to stage 2 and click "Pin to dashboard".';
+        canvas.appendChild(empty);
+      }
+
+      function removeTile(entry) {
+        try { entry.inst.dispose(); } catch (e) {}
+        entry.tile.remove();
+        const idx = dashboardTiles.indexOf(entry);
+        if (idx !== -1) dashboardTiles.splice(idx, 1);
+        updateDashboardStatus();
+        showEmptyState();
+      }
+
       document.getElementById('pinBtn').addEventListener('click', () => {
         if (!lastResult) {
-          alert('Compile a chart first.');
+          alert('Compile a chart first (stage 2).');
           return;
         }
         const backend = 'echarts';
         const spec = lastResult.compiled[backend];
         if (!spec) { alert('No ECharts output to pin.'); return; }
         const canvas = document.getElementById('dashboardCanvas');
-        // remove empty state
         const empty = canvas.querySelector('.status[style*="grid-column"]');
         if (empty) empty.remove();
 
         const tile = document.createElement('div');
         tile.className = 'tile';
+        const headerRow = document.createElement('div');
+        headerRow.className = 'row';
+        headerRow.style.justifyContent = 'space-between';
+        headerRow.style.alignItems = 'center';
+        headerRow.style.marginBottom = '6px';
         const title = document.createElement('div');
         title.className = 'title';
+        title.style.margin = '0';
         title.textContent = lastResult.flint.chart_spec.title || lastResult.flint.chart_spec.chartType;
+        const removeBtn = document.createElement('button');
+        removeBtn.textContent = '×';
+        removeBtn.title = 'Remove this chart';
+        removeBtn.style.padding = '0 8px';
+        removeBtn.style.fontSize = '16px';
+        removeBtn.style.lineHeight = '1';
+        headerRow.appendChild(title);
+        headerRow.appendChild(removeBtn);
+
         const chartDiv = document.createElement('div');
         chartDiv.className = 'chart';
-        tile.appendChild(title);
+        tile.appendChild(headerRow);
         tile.appendChild(chartDiv);
         canvas.appendChild(tile);
 
         const inst = echarts.init(chartDiv);
         inst.setOption(spec, true);
-        dashboardTiles.push(inst);
+        const entry = { tile, inst, chartDiv };
+        dashboardTiles.push(entry);
+        removeBtn.addEventListener('click', () => removeTile(entry));
+
+        // Defer resize so the grid has laid out the tile
+        setTimeout(() => { try { inst.resize(); } catch (e) {} }, 50);
+        updateDashboardStatus();
+        const status = document.getElementById('compileStatus');
+        status.textContent = `Pinned: ${title.textContent}. Dashboard now has ${dashboardTiles.length} chart${dashboardTiles.length === 1 ? '' : 's'}.`;
+      });
+
+      document.getElementById('clearDashboardBtn').addEventListener('click', () => {
+        if (dashboardTiles.length === 0) return;
+        [...dashboardTiles].forEach(removeTile);
       });
 
       // ---------- init ----------
@@ -646,7 +707,7 @@ ORDER BY month, region;`;
         if (vegaView) try { vegaView.resize(); } catch (e) {}
         if (chartjsInstance) chartjsInstance.resize();
         try { Plotly.Plots.resize(document.getElementById('chartBox')); } catch (e) {}
-        dashboardTiles.forEach((t) => t.resize());
+        dashboardTiles.forEach((t) => { try { t.inst.resize(); } catch (e) {} });
       });
     </script>
   </body>
