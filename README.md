@@ -1,60 +1,67 @@
 # sql-to-flint
 
-The smallest bridge between SQL and [Flint](https://microsoft.github.io/flint-chart/):
-annotate a SQL result set and get a portable Flint chart spec, compiled options
-for ECharts / Vega-Lite / Chart.js / Plotly, and BI-grade diagnostics.
+🪄 **sql-to-flint** is the SQL-native front door to
+[Flint](https://microsoft.github.io/flint-chart/): annotate a SQL result set
+and get a portable chart spec, compiled options for any backend, and
+BI-grade diagnostics.
 
-Flint owns visualization complexity (52 chart types, 5 backends, 14 themes,
-interactions). `sql-to-flint` owns the SQL-native experience, semantic
-inference and diagnostics.
+Flint owns visualization complexity — 52 chart types across 5 rendering
+backends (Vega-Lite, ECharts, Chart.js, Plotly, native Excel), 14 themes and
+23 interaction presets. `sql-to-flint` owns the SQL-native experience:
+semantic inference, the annotation grammar, and diagnostics. Together they
+make the smallest possible bridge between SQL and a chart.
+
+**Live demo:** https://aveekdeveloper.github.io/SqlFlint/
+
+## Quick start
+
+```ts
+import { compileSqlToFlint } from 'sql-to-flint';
+
+const { flint, echarts, diagnostics } = compileSqlToFlint({
+  sql: `
+-- @viz: bar
+-- @x: month
+-- @y: revenue
+-- @groupby: region
+-- @stack: true
+-- @theme: powerbi-light
+SELECT month, region, SUM(revenue) AS revenue
+FROM orders
+GROUP BY month, region;
+  `,
+  data: [
+    { month: '2026-01', region: 'NA', revenue: 10 },
+    { month: '2026-01', region: 'EU', revenue: 20 },
+  ],
+});
+
+// flint   -> portable Flint spec
+// echarts -> compiled ECharts options
+```
+
+Compile to other backends with `backends: ['vegalite', 'chartjs', 'plotly']`.
 
 ## Why SQL-based annotations
 
 The chart definition lives inside the SQL file, as leading comments. That one
-decision changes what the artifact is:
+decision buys a lot:
 
-### Versioned as code
-
-Query and presentation intent live in one file. Git diffs cover both, pull
-requests review both, `git blame` answers "who changed this chart title", and
-revert undoes a chart change like any other change. There is no sidecar spec
-to drift out of sync with the query.
-
-### Built for agentic development
-
-Agents author intent, not rendering code.
-
-- **Token cost.** An annotation block is roughly 15-30 tokens. The equivalent
-  hand-written chart spec is hundreds; generated rendering code is thousands.
-- **Stable diffs.** One intent change is one comment line, so agent edit loops
-  and code review stay small.
-- **Deterministic output.** The compiler produces the spec, so there is no
-  hallucinated chart code to debug.
-- **Closed feedback loop.** Diagnostics are machine-readable
-  (`{ severity, code, message }`). An agent reads `MISSING_COLUMN`, fixes one
-  line, and recompiles. No eyeballing rendered output to know it worked.
-
-### Portable and lock-in free
-
-The SQL stays valid on any engine (comments are ignored by the database), and
-one file compiles to ECharts, Vega-Lite, Chart.js, Plotly and Excel through
-Flint. The same file serves a notebook, a dashboard and an agent app.
-
-### Trustworthy defaults
-
-- **Inference first.** A plain query with zero annotations already produces a
-  sensible chart. Annotations are overrides, not boilerplate.
-- **Diagnostics catch drift.** Renamed a column? `MISSING_COLUMN` points at
-  the stale annotation. Negative pie values, near-unique series, mixed-sign
-  stacks and temporal-measure mixups are flagged before anyone renders.
-
-### Production-grade
-
-- **CI-testable.** Compile SQL plus a fixture in a test, snapshot the spec,
-  assert on diagnostics. Charts get the same guarantees as code.
-- **Reproducible.** One file is the complete recipe (data logic and
-  presentation intent) for the same chart anywhere.
-- **Auditable.** Chart changes go through the same review and history as code.
+- **Versioned as code.** Query and presentation intent in one file: git diffs,
+  pull-request review, `git blame` and `git revert` cover chart changes too.
+- **Built for agentic development.** An agent authors ~15-30 tokens of intent
+  instead of hundreds of tokens of JSON or thousands of lines of rendering
+  code. The compiler produces the spec deterministically, and diagnostics
+  (`{ severity, code, message }`) close a self-correction loop without
+  eyeballing rendered output.
+- **Portable and lock-in free.** The SQL stays valid on any engine (comments
+  are ignored), and one file compiles to ECharts, Vega-Lite, Chart.js,
+  Plotly and Excel through Flint.
+- **Trustworthy defaults.** Inference first: a plain query with zero
+  annotations already produces a sensible chart. Annotations are overrides,
+  not boilerplate. Diagnostics catch drift before anyone renders.
+- **Production-grade.** Compile and snapshot specs in CI, assert on
+  diagnostics, and keep a complete reproducible recipe in one file.
 
 ### How it compares
 
@@ -75,24 +82,20 @@ locked inside a BI tool's config store.
 
 Deep dive: [docs/why-annotations.md](./docs/why-annotations.md)
 
-## Use with your coding agent
+## How it works
 
-Point your agent at the skill file and let it run the loop:
+Four stages, mirroring Flint's pipeline — but you only author the first:
 
-```
-Read the sql-to-flint chart authoring skill in this repository:
-agent-skills/sql-to-flint-author/SKILL.md
-
-Chart this SQL: <paste your query>. Compile it, fix any diagnostics,
-then render with ECharts and show me the result.
-```
-
-The skill teaches the grammar, the compile-diagnose-adjust loop and the
-anti-patterns (never hand-write rendering code when annotations suffice).
-
-If `sql-to-flint` is installed as a dependency, the same skill ships inside
-the package, so agents can read it from
-`node_modules/sql-to-flint/agent-skills/sql-to-flint-author/SKILL.md`.
+1. **Describe data with semantic types.** Inferred automatically from each
+   column's name and values (`YearMonth`, `Price`, `Region`, `Count`, ...).
+   Override with `-- @semantic:` when inference is wrong.
+2. **Build charts once, render on any backend.** The compiler turns the
+   annotated SQL plus rows into one Flint spec; Flint compiles it to
+   ECharts, Vega-Lite, Chart.js, Plotly or Excel.
+3. **Unify the look with a theme.** Pick one of Flint's 14 presets
+   (`powerbi-light`, `nyt`, `economist`, `swiss`, ...) via `-- @theme`.
+4. **Add interactions.** Brush, inspect, legend toggle and 20 more presets
+   through the `-- @flint:` escape hatch.
 
 ## Install
 
@@ -151,6 +154,23 @@ temporal (`YearMonth`, `Date`, `Quarter`, ...), measures (`Price`,
 
 Every compile returns `diagnostics: { severity, code, message, column? }[]`.
 See the viz grammar doc for the full code list.
+
+## Use with your coding agent
+
+Point your agent at the skill file and let it run the loop:
+
+```
+Read the sql-to-flint chart authoring skill in this repository:
+agent-skills/sql-to-flint-author/SKILL.md
+
+Chart this SQL: <paste your query>. Compile it, fix any diagnostics,
+then render with ECharts and show me the result.
+```
+
+The skill teaches the grammar, the compile-diagnose-adjust loop and the
+anti-patterns (never hand-write rendering code when annotations suffice). If
+`sql-to-flint` is installed as a dependency, the same skill ships inside the
+package at `node_modules/sql-to-flint/agent-skills/sql-to-flint-author/SKILL.md`.
 
 ## Demo
 
