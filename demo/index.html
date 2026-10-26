@@ -210,14 +210,31 @@ ORDER BY month, region;</textarea>
     <!-- Stage 3 -->
     <section class="stage" id="stage-3">
       <div class="card">
-        <div class="row" style="justify-content:space-between;align-items:center;">
+        <div class="row" style="justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
           <h2 style="margin:0;">Dashboard canvas</h2>
-          <button id="clearDashboardBtn">Clear all</button>
+          <div class="row" style="align-items:center;gap:8px;">
+            <label style="margin:0;font-size:12px;">Render backend</label>
+            <select id="dashboardBackend" style="width:auto;">
+              <option value="echarts">ECharts</option>
+              <option value="vegalite">Vega-Lite</option>
+              <option value="chartjs">Chart.js</option>
+              <option value="plotly">Plotly</option>
+            </select>
+            <button id="clearDashboardBtn">Clear all</button>
+          </div>
         </div>
         <div class="status">Pin charts from stage 2 to build a simple canvas. Each tile renders independently.</div>
         <div class="status" id="dashboardStatus"></div>
         <div class="dashboard-canvas" id="dashboardCanvas">
           <div class="status" style="grid-column:1/-1;text-align:center;padding:40px;">No charts pinned yet. Go to stage 2 and click "Pin to dashboard".</div>
+        </div>
+        <div class="card" style="margin-top:16px;">
+          <div class="row" style="justify-content:space-between;align-items:center;">
+            <h3 style="margin:0;">Dashboard as code (annotated SQL)</h3>
+            <button id="copyDashboardCodeBtn">Copy SQL</button>
+          </div>
+          <div class="status">All pinned visuals as annotated SQL queries — the dashboard defined as code.</div>
+          <pre id="dashboardCodeOut" style="max-height:420px;"></pre>
         </div>
       </div>
     </section>
@@ -267,6 +284,51 @@ ORDER BY month, region;</textarea>
       let lastResult = null;
       let chartInstance = null;
       const dashboardTiles = [];
+      let dashboardBackend = 'echarts';
+
+      function disposeEntry(entry) {
+        if (!entry.inst) return;
+        try {
+          if (typeof entry.inst.dispose === 'function') entry.inst.dispose();
+          else if (typeof entry.inst.destroy === 'function') entry.inst.destroy();
+          else if (typeof entry.inst.finalize === 'function') entry.inst.finalize();
+        } catch (e) {}
+        entry.inst = null;
+      }
+
+      function renderTile(entry, backend) {
+        const box = entry.chartDiv;
+        disposeEntry(entry);
+        try { Plotly.purge(box); } catch (e) {}
+        box.innerHTML = '';
+        const spec = entry.compiled[backend] || entry.compiled.echarts;
+        if (!spec) {
+          box.innerHTML = '<div class="status">No output for this backend.</div>';
+          return;
+        }
+        if (backend === 'echarts') {
+          const inst = echarts.init(box);
+          inst.setOption(spec, true);
+          entry.inst = inst;
+          setTimeout(() => { try { inst.resize(); } catch (e) {} }, 50);
+        } else if (backend === 'vegalite') {
+          vegaEmbed(box, spec, { actions: false })
+            .then((r) => { entry.inst = r.view; })
+            .catch((e) => { box.innerHTML = '<div class="status err">Vega-Lite render failed: ' + (e?.message || e) + '</div>'; });
+        } else if (backend === 'chartjs') {
+          const canvas = document.createElement('canvas');
+          box.appendChild(canvas);
+          const inst = new Chart(canvas, spec);
+          entry.inst = inst;
+        } else if (backend === 'plotly') {
+          if (spec && spec.data && spec.layout) {
+            Plotly.newPlot(box, spec.data, spec.layout, { responsive: true });
+          } else {
+            Plotly.newPlot(box, spec);
+          }
+          entry.inst = null;
+        }
+      }
 
       function stripLeadingComments(sql) {
         const lines = sql.split(/\r?\n/);
@@ -609,6 +671,19 @@ ORDER BY month, region;`;
         el.textContent = n === 0 ? '' : `${n} chart${n === 1 ? '' : 's'} pinned.`;
       }
 
+      function renderDashboardCode() {
+        const out = document.getElementById('dashboardCodeOut');
+        if (dashboardTiles.length === 0) {
+          out.textContent = '-- No charts pinned yet.';
+          return;
+        }
+        const parts = dashboardTiles.map((entry, i) => {
+          const title = entry.title || ('Chart ' + (i + 1));
+          return `-- ========== ${title} ==========\n${(entry.sql || '').trim()}\n`;
+        });
+        out.textContent = parts.join('\n');
+      }
+
       function showEmptyState() {
         const canvas = document.getElementById('dashboardCanvas');
         if (canvas.querySelector('.tile')) return;
@@ -621,12 +696,14 @@ ORDER BY month, region;`;
       }
 
       function removeTile(entry) {
-        try { entry.inst.dispose(); } catch (e) {}
+        disposeEntry(entry);
+        try { Plotly.purge(entry.chartDiv); } catch (e) {}
         entry.tile.remove();
         const idx = dashboardTiles.indexOf(entry);
         if (idx !== -1) dashboardTiles.splice(idx, 1);
         updateDashboardStatus();
         showEmptyState();
+        renderDashboardCode();
       }
 
       document.getElementById('pinBtn').addEventListener('click', () => {
@@ -637,6 +714,7 @@ ORDER BY month, region;`;
         const backend = 'echarts';
         const spec = lastResult.compiled[backend];
         if (!spec) { alert('No ECharts output to pin.'); return; }
+        const pinnedSql = document.getElementById('sql2').value;
         const canvas = document.getElementById('dashboardCanvas');
         const empty = canvas.querySelector('.status[style*="grid-column"]');
         if (empty) empty.remove();
@@ -667,26 +745,45 @@ ORDER BY month, region;`;
         tile.appendChild(chartDiv);
         canvas.appendChild(tile);
 
-        const inst = echarts.init(chartDiv);
-        inst.setOption(spec, true);
-        const entry = { tile, inst, chartDiv };
+        const inst = null;
+        const entry = { tile, inst, chartDiv, title: title.textContent, sql: pinnedSql, flint: lastResult.flint, compiled: lastResult.compiled };
         dashboardTiles.push(entry);
         removeBtn.addEventListener('click', () => removeTile(entry));
 
-        // Defer resize so the grid has laid out the tile
-        setTimeout(() => { try { inst.resize(); } catch (e) {} }, 50);
+        renderTile(entry, dashboardBackend);
+
         updateDashboardStatus();
+        renderDashboardCode();
         const status = document.getElementById('compileStatus');
         status.textContent = `Pinned: ${title.textContent}. Dashboard now has ${dashboardTiles.length} chart${dashboardTiles.length === 1 ? '' : 's'}.`;
       });
 
+      document.getElementById('dashboardBackend').addEventListener('change', (e) => {
+        dashboardBackend = e.target.value;
+        dashboardTiles.forEach((entry) => renderTile(entry, dashboardBackend));
+      });
       document.getElementById('clearDashboardBtn').addEventListener('click', () => {
         if (dashboardTiles.length === 0) return;
         [...dashboardTiles].forEach(removeTile);
+        renderDashboardCode();
+      });
+
+      document.getElementById('copyDashboardCodeBtn').addEventListener('click', async () => {
+        const text = document.getElementById('dashboardCodeOut').textContent || '';
+        try {
+          await navigator.clipboard.writeText(text);
+          const btn = document.getElementById('copyDashboardCodeBtn');
+          const prev = btn.textContent;
+          btn.textContent = 'Copied';
+          setTimeout(() => { btn.textContent = prev; }, 1200);
+        } catch (e) {
+          alert('Copy failed: ' + (e?.message || e));
+        }
       });
 
       // ---------- init ----------
       renderTable(currentData);
+      renderDashboardCode();
       // sql2 is populated on first visit to stage 2 via the tab carry-over logic
 
       // DuckDB status
