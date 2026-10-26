@@ -1,0 +1,41 @@
+{
+  "name": "sql-to-flint",
+  "version": "0.2.0",
+  "description": "The smallest bridge between SQL and Flint: annotate SQL result sets and get a portable Flint chart spec, compiled ECharts options, and BI-grade diagnostics.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": ["dist", "README.md", "LICENSE"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "lint": "tsc -p tsconfig.test.json --noEmit",
+    "demo": "npm run build && node scripts/prepare-demo.cjs",
+    "prepare-demo": "node scripts/prepare-demo.cjs"
+  },
+  "dependencies": {
+    "flint-chart": "^1.0.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0"
+  },
+  "keywords": [
+    "sql",
+    "flint",
+    "flint-chart",
+    "echarts",
+    "vega-lite",
+    "plotly",
+    "visualization",
+    "bi",
+    "duckdb"
+  ],
+  "license": "MIT"
+}

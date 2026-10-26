@@ -1,0 +1,653 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>sql-to-flint demo</title>
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/vega@5/build/vega.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/vega-lite@5/build/vega-lite.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/vega-embed@6/build/vega-embed.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.js"></script>
+    <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+    <script type="importmap">
+      {
+        "imports": {
+          "flint-chart": "https://cdn.jsdelivr.net/npm/flint-chart@1.0.0/+esm"
+        }
+      }
+    </script>
+    <style>
+      :root {
+        --pbi-bg: #f3f2f1;
+        --pbi-card: #ffffff;
+        --pbi-text: #252423;
+        --pbi-muted: #605e5c;
+        --pbi-accent: #0078d4;
+        --pbi-accent-soft: #deecf9;
+        --pbi-border: #edebe9;
+        --pbi-shadow: 0 1.6px 3.6px rgba(0, 0, 0, 0.06), 0 0.3px 0.9px rgba(0, 0, 0, 0.08);
+        --radius: 6px;
+        --font: 'Segoe UI', 'Segoe UI Web', system-ui, -apple-system, sans-serif;
+        --mono: 'Cascadia Code', 'Consolas', ui-monospace, monospace;
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; padding: 0; background: var(--pbi-bg); color: var(--pbi-text); font-family: var(--font); font-size: 14px; }
+      header { padding: 16px 24px; background: var(--pbi-card); border-bottom: 1px solid var(--pbi-border); display: flex; align-items: center; gap: 12px; }
+      header h1 { font-size: 20px; font-weight: 600; margin: 0; }
+      header .sub { color: var(--pbi-muted); font-size: 13px; }
+      .pill { display: inline-block; padding: 2px 8px; border-radius: 999px; background: var(--pbi-accent-soft); color: var(--pbi-accent); font-size: 11px; font-weight: 600; }
+      .tabs { display: flex; gap: 4px; padding: 12px 24px 0; }
+      .tab { padding: 8px 16px; border: none; background: transparent; color: var(--pbi-muted); cursor: pointer; font-family: var(--font); font-size: 13px; font-weight: 600; border-bottom: 2px solid transparent; }
+      .tab.active { color: var(--pbi-accent); border-bottom-color: var(--pbi-accent); }
+      .stage { display: none; padding: 16px 24px 32px; }
+      .stage.active { display: block; }
+      .grid { display: grid; gap: 16px; }
+      .grid-2 { grid-template-columns: 1fr 1fr; }
+      .grid-3 { grid-template-columns: 1fr 1fr 1fr; }
+      @media (max-width: 960px) { .grid-2, .grid-3 { grid-template-columns: 1fr; } }
+      .card { background: var(--pbi-card); border: 1px solid var(--pbi-border); border-radius: var(--radius); box-shadow: var(--pbi-shadow); padding: 16px; }
+      .card h2 { font-size: 15px; font-weight: 600; margin: 0 0 8px; }
+      .card h3 { font-size: 13px; font-weight: 600; margin: 12px 0 6px; color: var(--pbi-muted); text-transform: uppercase; letter-spacing: 0.4px; }
+      label { display: block; font-size: 12px; font-weight: 600; color: var(--pbi-muted); margin: 10px 0 4px; }
+      textarea, input[type="text"], select { width: 100%; font-family: var(--mono); font-size: 12px; padding: 8px; border: 1px solid var(--pbi-border); border-radius: 4px; background: #fafafa; color: var(--pbi-text); }
+      textarea { min-height: 120px; resize: vertical; }
+      textarea.tall { min-height: 220px; }
+      textarea.medium { min-height: 180px; }
+      button { padding: 7px 14px; border: 1px solid var(--pbi-border); background: var(--pbi-card); color: var(--pbi-text); border-radius: 4px; cursor: pointer; font-family: var(--font); font-size: 13px; font-weight: 600; }
+      button.primary { background: var(--pbi-accent); color: #fff; border-color: var(--pbi-accent); }
+      button.primary:hover { background: #106ebe; }
+      button:hover { background: #f3f2f1; }
+      button:disabled { opacity: 0.5; cursor: not-allowed; }
+      .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+      .chart-box { width: 100%; height: 360px; background: var(--pbi-card); border: 1px solid var(--pbi-border); border-radius: var(--radius); }
+      .table-wrap { overflow: auto; max-height: 320px; border: 1px solid var(--pbi-border); border-radius: 4px; }
+      table { width: 100%; border-collapse: collapse; font-size: 12px; }
+      th, td { padding: 6px 10px; text-align: left; border-bottom: 1px solid var(--pbi-border); white-space: nowrap; }
+      th { background: #f3f2f1; font-weight: 600; position: sticky; top: 0; }
+      pre { background: #f7f7f7; border: 1px solid var(--pbi-border); border-radius: 4px; padding: 10px; font-family: var(--mono); font-size: 12px; overflow: auto; max-height: 360px; margin: 0; white-space: pre-wrap; word-break: break-word; }
+      .diag { padding: 6px 10px; border-left: 3px solid var(--pbi-border); margin: 4px 0; font-size: 12px; background: #fafafa; }
+      .diag.error { border-left-color: #d13438; background: #fde7e9; }
+      .diag.warning { border-left-color: #f7630c; background: #fff4ce; }
+      .diag.info { border-left-color: #0078d4; background: #deecf9; }
+      .diag .code { font-family: var(--mono); font-weight: 600; margin-right: 6px; }
+      .tile { background: var(--pbi-card); border: 1px solid var(--pbi-border); border-radius: var(--radius); padding: 10px; box-shadow: var(--pbi-shadow); }
+      .tile .title { font-size: 13px; font-weight: 600; margin-bottom: 6px; }
+      .tile .chart { width: 100%; height: 220px; }
+      .dashboard-canvas { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 16px; min-height: 260px; padding: 12px; border: 2px dashed var(--pbi-border); border-radius: var(--radius); }
+      .status { font-size: 12px; color: var(--pbi-muted); margin-top: 6px; }
+      .status.err { color: #d13438; }
+      .hidden { display: none; }
+      .sub-tabs { display: flex; gap: 4px; margin-bottom: 8px; }
+      .sub-tab { padding: 4px 10px; border: 1px solid var(--pbi-border); background: var(--pbi-card); border-radius: 4px; cursor: pointer; font-size: 12px; }
+      .sub-tab.active { background: var(--pbi-accent); color: #fff; border-color: var(--pbi-accent); }
+      .kv { display: flex; gap: 8px; flex-wrap: wrap; }
+      .kv .k { font-size: 11px; color: var(--pbi-muted); text-transform: uppercase; letter-spacing: 0.4px; }
+      .kv .v { font-size: 12px; font-weight: 600; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div>
+        <h1>sql-to-flint demo</h1>
+        <div class="sub">The SQL-native bridge to <a href="https://microsoft.github.io/flint-chart/" target="_blank" rel="noreferrer">Flint</a> — annotate SQL, get a portable spec, compile to any backend.</div>
+      </div>
+    </header>
+
+    <div class="tabs">
+      <button class="tab active" data-stage="1">1. Explore with SQL</button>
+      <button class="tab" data-stage="2">2. Turn SQL into a chart</button>
+      <button class="tab" data-stage="3">3. Compose a dashboard</button>
+    </div>
+
+    <!-- Stage 1 -->
+    <section class="stage active" id="stage-1">
+      <div class="grid grid-2">
+        <div class="card">
+          <h2>Dataset &amp; SQL</h2>
+          <label>Sample dataset</label>
+          <select id="dataset">
+            <option value="sales">Sales (month, region, revenue)</option>
+            <option value="users">Users (month, region, users)</option>
+            <option value="products">Products (category, subcategory, sales)</option>
+          </select>
+          <label>Or upload a CSV</label>
+          <input type="file" id="csvFile" accept=".csv,text/csv" />
+          <label>SQL (your data is available as table <code>data</code>)</label>
+          <textarea id="sql1" class="medium">SELECT month, region, SUM(revenue) AS revenue
+FROM data
+GROUP BY month, region
+ORDER BY month, region;</textarea>
+          <div class="row" style="margin-top:10px;">
+            <button class="primary" id="runSql">Run SQL</button>
+            <span class="status" id="sqlStatus">Ready.</span>
+          </div>
+          <div class="status" id="duckStatus"></div>
+        </div>
+        <div class="card">
+          <h2>Result table</h2>
+          <div class="table-wrap" id="resultTable"></div>
+          <div class="status" id="resultMeta"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Stage 2 -->
+    <section class="stage" id="stage-2">
+      <div class="grid grid-2">
+        <div class="card">
+          <h2>SQL + annotations</h2>
+          <label>SQL (carried from stage 1)</label>
+          <textarea id="sql2" class="tall"></textarea>
+          <label>Theme</label>
+          <select id="theme">
+            <option value="powerbi-light">powerbi-light (default)</option>
+            <option value="powerbi">powerbi</option>
+            <option value="nyt">nyt</option>
+            <option value="economist">economist</option>
+            <option value="swiss">swiss</option>
+            <option value="nature">nature</option>
+            <option value="mckinsey">mckinsey</option>
+            <option value="datawrapper">datawrapper</option>
+            <option value="pop">pop</option>
+            <option value="cartoon">cartoon</option>
+            <option value="apple">apple</option>
+            <option value="de-stijl">de-stijl</option>
+            <option value="bbc">bbc</option>
+            <option value="material">material</option>
+          </select>
+          <label>Backend</label>
+          <select id="backend">
+            <option value="echarts">ECharts</option>
+            <option value="vegalite">Vega-Lite</option>
+            <option value="chartjs">Chart.js</option>
+            <option value="plotly">Plotly</option>
+          </select>
+          <div class="row" style="margin-top:10px;">
+            <button class="primary" id="compileBtn">Compile &amp; render</button>
+            <button id="pinBtn">Pin to dashboard</button>
+            <button id="annotateBtn">Insert annotation template</button>
+          </div>
+          <details style="margin-top:12px;">
+            <summary style="cursor:pointer;font-size:12px;font-weight:600;color:var(--pbi-muted);">Grammar cheat sheet (copy / paste)</summary>
+            <pre style="margin-top:8px;font-size:11px;">-- @viz: bar | line | area | scatter | pie | heatmap   (or any Flint template: waterfall, gauge, sankey...)
+-- @x: category_or_date_column
+-- @y: measure_column
+-- @groupby: series_column            (-- @series: also works)
+-- @value: measure_column             (heatmap colour)
+-- @aggregate: sum | avg | min | max | count | first
+-- @stack: true | false | stack_name
+-- @zoom: inside,slider
+-- @title: Chart title
+-- @subtitle: Chart subtitle
+-- @theme: powerbi-light | nyt | economist | swiss | ...
+-- @semantic: col: Type, other: Type
+-- @echarts_override: {"backgroundColor":"#fff"}
+-- @flint: {"chart_spec":{"title":"Custom"}}
+
+-- No annotations? The compiler infers: temporal -> x, first measure -> y, first category -> series, default bar/line.</pre>
+          </details>
+          <div class="status" id="compileStatus"></div>
+        </div>
+        <div class="card">
+          <h2>Chart</h2>
+          <div class="chart-box" id="chartBox"></div>
+        </div>
+      </div>
+      <div class="card" style="margin-top:16px;">
+        <h2>Output</h2>
+        <div class="sub-tabs">
+          <button class="sub-tab active" data-out="spec">Flint spec</button>
+          <button class="sub-tab" data-out="options">Compiled options</button>
+          <button class="sub-tab" data-out="diags">Diagnostics</button>
+        </div>
+        <div id="out-spec"><pre id="specOut"></pre></div>
+        <div id="out-options" class="hidden"><pre id="optionsOut"></pre></div>
+        <div id="out-diags" class="hidden"><div id="diagsOut"></div></div>
+      </div>
+    </section>
+
+    <!-- Stage 3 -->
+    <section class="stage" id="stage-3">
+      <div class="card">
+        <h2>Dashboard canvas</h2>
+        <div class="status">Pin charts from stage 2 to build a simple canvas. Each tile renders independently.</div>
+        <div class="dashboard-canvas" id="dashboardCanvas">
+          <div class="status" style="grid-column:1/-1;text-align:center;padding:40px;">No charts pinned yet. Go to stage 2 and click "Pin to dashboard".</div>
+        </div>
+      </div>
+    </section>
+
+    <script type="module">
+      let compileSqlToFlint = null;
+      try {
+        const mod = await import('./compiler.js');
+        compileSqlToFlint = mod.compileSqlToFlint;
+      } catch (e) {
+        console.error('Failed to load compiler.js:', e);
+        document.body.insertAdjacentHTML('afterbegin',
+          '<div style="background:#fde7e9;color:#d13438;padding:12px 24px;border-bottom:1px solid #f5c2c7;font-family:system-ui,sans-serif;font-size:13px;">' +
+          'Could not load <code>compiler.js</code>. Build first: <code>npm run build</code>, then serve the <code>dist/</code> folder (e.g. <code>npx serve dist</code>).' +
+          '</div>');
+      }
+
+      const samples = {
+        sales: [
+          { month: '2026-01', region: 'NA', revenue: 10 },
+          { month: '2026-01', region: 'EU', revenue: 20 },
+          { month: '2026-02', region: 'NA', revenue: 30 },
+          { month: '2026-02', region: 'EU', revenue: 40 },
+          { month: '2026-03', region: 'NA', revenue: 25 },
+          { month: '2026-03', region: 'EU', revenue: 35 },
+        ],
+        users: [
+          { month: '2026-01', region: 'NA', users: 1200 },
+          { month: '2026-01', region: 'EU', users: 800 },
+          { month: '2026-02', region: 'NA', users: 1500 },
+          { month: '2026-02', region: 'EU', users: 900 },
+          { month: '2026-03', region: 'NA', users: 1700 },
+          { month: '2026-03', region: 'EU', users: 1000 },
+        ],
+        products: [
+          { category: 'Electronics', subcategory: 'Phones', sales: 4200 },
+          { category: 'Electronics', subcategory: 'Laptops', sales: 3100 },
+          { category: 'Clothing', subcategory: 'Shirts', sales: 1800 },
+          { category: 'Clothing', subcategory: 'Shoes', sales: 2400 },
+          { category: 'Home', subcategory: 'Furniture', sales: 2900 },
+          { category: 'Home', subcategory: 'Decor', sales: 1200 },
+        ],
+      };
+
+      let currentData = samples.sales;
+      let currentSql = '';
+      let lastResult = null;
+      let chartInstance = null;
+      const dashboardTiles = [];
+
+      function stripLeadingComments(sql) {
+        const lines = sql.split(/\r?\n/);
+        let i = 0;
+        while (i < lines.length && (lines[i].trim() === '' || lines[i].trim().startsWith('--'))) i++;
+        return lines.slice(i).join('\n').trim();
+      }
+
+      function buildInferredAnnotations(result) {
+        const flint = result.flint;
+        const enc = flint.chart_spec.encodings || {};
+        const ct = flint.chart_spec.chartType || 'Bar Chart';
+        const vizMap = {
+          'Bar Chart': 'bar', 'Grouped Bar Chart': 'bar', 'Stacked Bar Chart': 'bar',
+          'Line Chart': 'line', 'Area Chart': 'area', 'Pie Chart': 'pie',
+          'Heatmap': 'heatmap', 'Scatter Plot': 'scatter',
+        };
+        const lines = [];
+        lines.push(`-- @viz: ${vizMap[ct] || 'bar'}`);
+        if (enc.x) lines.push(`-- @x: ${enc.x}`);
+        if (enc.y) lines.push(`-- @y: ${enc.y}`);
+        if (enc.color) lines.push(`-- @groupby: ${enc.color}`);
+        if (flint.theme_spec) lines.push(`-- @theme: ${flint.theme_spec}`);
+        return lines.join('\n');
+      }
+
+      // ---------- tabs ----------
+      let sql2Dirty = false;
+      document.getElementById('sql2').addEventListener('input', () => { sql2Dirty = true; });
+
+      document.querySelectorAll('.tab').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          document.querySelectorAll('.tab').forEach((b) => b.classList.remove('active'));
+          btn.classList.add('active');
+          const stage = btn.dataset.stage;
+          document.querySelectorAll('.stage').forEach((s) => s.classList.remove('active'));
+          document.getElementById('stage-' + stage).classList.add('active');
+          if (stage === '2' && !sql2Dirty) {
+            const carried = (currentSql || document.getElementById('sql1').value || '').trim();
+            if (carried) {
+              document.getElementById('sql2').value = carried;
+            } else if (!document.getElementById('sql2').value) {
+              document.getElementById('sql2').value = `-- @viz: bar
+-- @x: month
+-- @y: revenue
+-- @groupby: region
+-- @stack: true
+-- @theme: powerbi-light
+SELECT month, region, SUM(revenue) AS revenue
+FROM data
+GROUP BY month, region
+ORDER BY month, region;`;
+            }
+          }
+        });
+      });
+
+      // ---------- DuckDB ----------
+      let duckConn = null;
+      let duckFailed = false;
+      let duckError = null;
+      async function ensureDuck() {
+        if (duckConn) return duckConn;
+        if (duckFailed) return null;
+        try {
+          const mod = await import('https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@1.29.0/+esm');
+          let bundle;
+          try {
+            bundle = await mod.selectBundle(mod.getBundle ? mod.getBundle() : null);
+          } catch (e) {
+            bundle = await mod.selectBundle({
+              mvp: {
+                mainModule: 'https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@1.29.0/dist/duckdb-mvp.wasm',
+                mainWorker: 'https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@1.29.0/dist/duckdb-browser-mvp.worker.js',
+              },
+              eh: {
+                mainModule: 'https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@1.29.0/dist/duckdb-eh.wasm',
+                mainWorker: 'https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@1.29.0/dist/duckdb-browser-eh.worker.js',
+              },
+            });
+          }
+
+          // Fetch the worker script and turn it into a same-origin blob URL,
+          // which avoids cross-origin Worker restrictions.
+          const workerText = await (await fetch(bundle.mainWorker)).text();
+          const workerBlob = new Blob([workerText], { type: 'text/javascript' });
+          const workerUrl = URL.createObjectURL(workerBlob);
+          const worker = new Worker(workerUrl);
+          const db = new mod.AsyncDuckDB(new mod.ConsoleLogger(), worker);
+          await db.instantiate(bundle.mainModule);
+          duckConn = await db.connect();
+          return duckConn;
+        } catch (e) {
+          duckFailed = true;
+          duckError = e?.message || String(e);
+          console.error('DuckDB-WASM failed:', e);
+          return null;
+        }
+      }
+
+      async function registerTable(conn, data) {
+        await conn.query('DROP TABLE IF EXISTS data');
+        const cols = Object.keys(data[0] || {});
+        const colDefs = cols.map((c) => {
+          const values = data.map((r) => r[c]).filter((v) => v !== null && v !== undefined);
+          const allNumbers = values.length > 0 && values.every((v) => (typeof v === 'number' || typeof v === 'bigint') && (typeof v === 'bigint' || Number.isFinite(v)));
+          const allBooleans = values.length > 0 && values.every((v) => typeof v === 'boolean');
+          const type = allBooleans ? 'BOOLEAN' : allNumbers ? 'DOUBLE' : 'VARCHAR';
+          return `"${c}" ${type}`;
+        }).join(', ');
+        await conn.query(`CREATE TABLE data (${colDefs})`);
+        for (const row of data) {
+          const values = cols.map((c) => {
+            const v = row[c];
+            if (v === null || v === undefined) return 'NULL';
+            if (typeof v === 'boolean') return v ? 'TRUE' : 'FALSE';
+            if (typeof v === 'number' || typeof v === 'bigint') return String(v);
+            return `'${String(v).replace(/'/g, "''")}'`;
+          }).join(', ');
+          await conn.query(`INSERT INTO data VALUES (${values})`);
+        }
+      }
+
+      async function runSql(sql) {
+        const conn = await ensureDuck();
+        if (!conn) {
+          return { error: 'DuckDB-WASM could not load in this browser. The demo still works with the in-memory sample data and manual JSON editing, but SQL execution needs DuckDB-WASM.' };
+        }
+        try {
+          await registerTable(conn, currentData);
+          const result = await conn.query(sql);
+          const rows = result.toArray().map((r) => {
+            const obj = {};
+            for (const field of result.schema.fields) {
+              let v = r[field.name];
+              if (typeof v === 'bigint') v = Number(v);
+              obj[field.name] = v && typeof v === 'object' && 'toString' in v && !(v instanceof Date) ? v.toString() : v;
+            }
+            return obj;
+          });
+          return { rows };
+        } catch (e) {
+          return { error: String(e?.message || e) };
+        }
+      }
+
+      function renderTable(rows) {
+        const wrap = document.getElementById('resultTable');
+        if (!rows || rows.length === 0) {
+          wrap.innerHTML = '<div class="status">No rows.</div>';
+          return;
+        }
+        const cols = Object.keys(rows[0]);
+        let html = '<table><thead><tr>' + cols.map((c) => `<th>${c}</th>`).join('') + '</tr></thead><tbody>';
+        for (const row of rows.slice(0, 500)) {
+          html += '<tr>' + cols.map((c) => `<td>${row[c] === null || row[c] === undefined ? '' : row[c]}</td>`).join('') + '</tr>';
+        }
+        html += '</tbody></table>';
+        wrap.innerHTML = html;
+        document.getElementById('resultMeta').textContent = `${rows.length} row${rows.length === 1 ? '' : 's'}${rows.length > 500 ? ' (showing first 500)' : ''}.`;
+      }
+
+      // ---------- stage 1 wiring ----------
+      const datasetSelect = document.getElementById('dataset');
+      datasetSelect.addEventListener('change', () => {
+        currentData = samples[datasetSelect.value];
+        renderTable(currentData);
+      });
+
+      document.getElementById('csvFile').addEventListener('change', async (e) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        const text = await file.text();
+        const lines = text.trim().split(/\r?\n/);
+        const header = lines[0].split(',').map((s) => s.trim().replace(/^"|"$/g, ''));
+        const rows = lines.slice(1).filter(Boolean).map((line) => {
+          const values = line.split(',').map((s) => s.trim().replace(/^"|"$/g, ''));
+          const row = {};
+          header.forEach((h, i) => {
+            const raw = values[i];
+            const num = Number(raw);
+            row[h] = raw === '' ? null : (Number.isFinite(num) && raw !== '' ? num : raw);
+          });
+          return row;
+        });
+        currentData = rows;
+        renderTable(rows);
+        document.getElementById('sqlStatus').textContent = `Loaded ${rows.length} rows from ${file.name}.`;
+      });
+
+      document.getElementById('runSql').addEventListener('click', async () => {
+        const sql = document.getElementById('sql1').value;
+        const status = document.getElementById('sqlStatus');
+        status.textContent = 'Running…';
+        status.classList.remove('err');
+        const { rows, error } = await runSql(sql);
+        if (error) {
+          status.textContent = error;
+          status.classList.add('err');
+          return;
+        }
+        currentData = rows;
+        currentSql = sql;
+        renderTable(rows);
+        status.textContent = `Query returned ${rows.length} row${rows.length === 1 ? '' : 's'}.`;
+      });
+
+      // ---------- stage 2 wiring ----------
+      let vegaView = null;
+      let chartjsInstance = null;
+
+      function clearChartBox() {
+        const box = document.getElementById('chartBox');
+        if (chartInstance) { try { chartInstance.dispose(); } catch (e) {} chartInstance = null; }
+        if (vegaView) { try { vegaView.finalize(); } catch (e) {} vegaView = null; }
+        if (chartjsInstance) { try { chartjsInstance.destroy(); } catch (e) {} chartjsInstance = null; }
+        try { Plotly.purge(box); } catch (e) {}
+        box.innerHTML = '';
+      }
+
+      function renderChart(result) {
+        const box = document.getElementById('chartBox');
+        clearChartBox();
+        const backend = document.getElementById('backend').value;
+        const spec = result.compiled[backend] || result.echarts;
+        if (!spec) {
+          box.innerHTML = '<div class="status">No output for this backend.</div>';
+          return;
+        }
+        if (backend === 'echarts') {
+          chartInstance = echarts.init(box);
+          chartInstance.setOption(spec, true);
+        } else if (backend === 'vegalite') {
+          vegaEmbed(box, spec, { actions: false })
+            .then((r) => { vegaView = r.view; })
+            .catch((e) => { box.innerHTML = '<div class="status err">Vega-Lite render failed: ' + (e?.message || e) + '</div>'; });
+        } else if (backend === 'chartjs') {
+          const canvas = document.createElement('canvas');
+          box.appendChild(canvas);
+          chartjsInstance = new Chart(canvas, spec);
+        } else if (backend === 'plotly') {
+          if (spec && spec.data && spec.layout) {
+            Plotly.newPlot(box, spec.data, spec.layout, { responsive: true });
+          } else {
+            Plotly.newPlot(box, spec);
+          }
+        }
+      }
+
+      function showOutput(result) {
+        document.getElementById('specOut').textContent = JSON.stringify(result.flint, (_k, v) => typeof v === 'bigint' ? Number(v) : v, 2);
+        const backend = document.getElementById('backend').value;
+        const compiled = result.compiled[backend];
+        document.getElementById('optionsOut').textContent = JSON.stringify(compiled ?? null, (_k, v) => typeof v === 'bigint' ? Number(v) : v, 2);
+        const diags = document.getElementById('diagsOut');
+        if (result.diagnostics.length === 0) {
+          diags.innerHTML = '<div class="status">No diagnostics. Clean compile.</div>';
+        } else {
+          diags.innerHTML = result.diagnostics.map((d) =>
+            `<div class="diag ${d.severity}"><span class="code">${d.code}</span>${d.message}${d.column ? ` <em>(${d.column})</em>` : ''}</div>`
+          ).join('');
+        }
+      }
+
+      document.getElementById('annotateBtn').addEventListener('click', () => {
+        const sqlEl = document.getElementById('sql2');
+        const template = `-- @viz: bar
+-- @x: month
+-- @y: revenue
+-- @groupby: region
+-- @stack: true
+-- @theme: powerbi-light
+`;
+        const existing = sqlEl.value.trim();
+        if (existing.startsWith('-- @')) {
+          sqlEl.value = existing;
+        } else {
+          sqlEl.value = template + existing;
+        }
+        sql2Dirty = true;
+      });
+
+      document.getElementById('compileBtn').addEventListener('click', () => {
+        if (!compileSqlToFlint) {
+          document.getElementById('compileStatus').textContent = 'compiler.js not loaded. Run "npm run build" and serve dist/.';
+          document.getElementById('compileStatus').classList.add('err');
+          return;
+        }
+        const sql = document.getElementById('sql2').value;
+        const theme = document.getElementById('theme').value;
+        const status = document.getElementById('compileStatus');
+        try {
+          const result = compileSqlToFlint({ sql, data: currentData, theme, backends: ['echarts', 'vegalite', 'chartjs', 'plotly'] });
+          lastResult = result;
+          renderChart(result);
+          showOutput(result);
+          const errCount = result.diagnostics.filter((d) => d.severity === 'error').length;
+          const warnCount = result.diagnostics.filter((d) => d.severity === 'warning').length;
+          const inferred = result.diagnostics.some((d) => d.code === 'DEFAULT_ENCODINGS');
+          if (inferred) {
+            const sqlEl = document.getElementById('sql2');
+            const hadAnnotations = /^\s*--\s*@/m.test(sqlEl.value);
+            if (!hadAnnotations) {
+              const body = stripLeadingComments(sqlEl.value);
+              sqlEl.value = buildInferredAnnotations(result) + (body ? '\n' + body : '');
+              sql2Dirty = true;
+            }
+          }
+          status.textContent = `Compiled: ${result.flint.chart_spec.chartType} · ${errCount} error(s), ${warnCount} warning(s).${inferred ? ' (encodings inferred and written as annotations)' : ''}`;
+          status.classList.toggle('err', errCount > 0);
+        } catch (e) {
+          status.textContent = 'Compile failed: ' + (e?.message || e);
+          status.classList.add('err');
+        }
+      });
+
+      document.getElementById('backend').addEventListener('change', () => {
+        if (lastResult) { renderChart(lastResult); showOutput(lastResult); }
+      });
+
+      document.querySelectorAll('.sub-tab').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          document.querySelectorAll('.sub-tab').forEach((b) => b.classList.remove('active'));
+          btn.classList.add('active');
+          const out = btn.dataset.out;
+          ['spec', 'options', 'diags'].forEach((k) => {
+            document.getElementById('out-' + k).classList.toggle('hidden', k !== out);
+          });
+        });
+      });
+
+      // ---------- stage 3: dashboard ----------
+      document.getElementById('pinBtn').addEventListener('click', () => {
+        if (!lastResult) {
+          alert('Compile a chart first.');
+          return;
+        }
+        const backend = 'echarts';
+        const spec = lastResult.compiled[backend];
+        if (!spec) { alert('No ECharts output to pin.'); return; }
+        const canvas = document.getElementById('dashboardCanvas');
+        // remove empty state
+        const empty = canvas.querySelector('.status[style*="grid-column"]');
+        if (empty) empty.remove();
+
+        const tile = document.createElement('div');
+        tile.className = 'tile';
+        const title = document.createElement('div');
+        title.className = 'title';
+        title.textContent = lastResult.flint.chart_spec.title || lastResult.flint.chart_spec.chartType;
+        const chartDiv = document.createElement('div');
+        chartDiv.className = 'chart';
+        tile.appendChild(title);
+        tile.appendChild(chartDiv);
+        canvas.appendChild(tile);
+
+        const inst = echarts.init(chartDiv);
+        inst.setOption(spec, true);
+        dashboardTiles.push(inst);
+      });
+
+      // ---------- init ----------
+      renderTable(currentData);
+      // sql2 is populated on first visit to stage 2 via the tab carry-over logic
+
+      // DuckDB status
+      ensureDuck().then((conn) => {
+        const el = document.getElementById('duckStatus');
+        if (conn) {
+          el.textContent = 'DuckDB-WASM ready. Your dataset is available as table "data".';
+          el.classList.remove('err');
+        } else {
+          el.textContent = 'DuckDB-WASM unavailable: ' + (duckError || 'unknown error') + '. Sample data and manual JSON still work.';
+          el.classList.add('err');
+        }
+      });
+
+      // keep charts responsive
+      window.addEventListener('resize', () => {
+        if (chartInstance) chartInstance.resize();
+        if (vegaView) try { vegaView.resize(); } catch (e) {}
+        if (chartjsInstance) chartjsInstance.resize();
+        try { Plotly.Plots.resize(document.getElementById('chartBox')); } catch (e) {}
+        dashboardTiles.forEach((t) => t.resize());
+      });
+    </script>
+  </body>
+</html>
