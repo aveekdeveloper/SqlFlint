@@ -43,6 +43,7 @@ const ecAllTemplateDefs = registry.ecAllTemplateDefs as unknown[];
 const vlAllTemplateDefs = registry.vlAllTemplateDefs as unknown[];
 
 export const themePresetIds = new Set<string>(Object.keys(THEME_PRESETS));
+export { THEME_PRESETS };
 
 export const semanticTypeNames = new Set<string>(Object.values(SemanticTypes));
 

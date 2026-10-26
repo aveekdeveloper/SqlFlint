@@ -1,5 +1,5 @@
 import { parseAnnotations, parseSemanticOverrides } from './annotations.js';
-import { assembleForBackend, semanticTypeNames, themePresetIds } from './flint.js';
+import { assembleForBackend, semanticTypeNames, themePresetIds, THEME_PRESETS } from './flint.js';
 import { resolveChartPlan } from './infer.js';
 import { profileColumns } from './semantics.js';
 import type { Backend, CompileOptions, CompileResult, Diagnostic, FlintChartSpec } from './types.js';
@@ -252,6 +252,23 @@ export function compileSqlToFlint(options: CompileOptions): CompileResult {
     const { spec, diagnostics: backendDiagnostics } = assembleForBackend(chartSpec, backend);
     diagnostics.push(...backendDiagnostics);
     if (spec) compiled[backend] = spec;
+  }
+
+  if (compiled.echarts && themeSpec) {
+    const preset = THEME_PRESETS[themeSpec] as
+      | { spec?: { ink?: { text?: { primary?: string }; structure?: { grid?: string; axis?: string }; series?: { categorical?: string[] } } } }
+      | undefined;
+    const colors = (preset?.spec?.ink as any)?.series?.categorical;
+    if (colors && colors.length > 0) {
+      compiled.echarts = {
+        ...compiled.echarts,
+        color: colors,
+        textStyle: {
+          ...(compiled.echarts.textStyle as Record<string, unknown> | undefined),
+          color: preset?.spec?.ink?.text?.primary ?? (compiled.echarts.textStyle as any)?.color,
+        },
+      };
+    }
   }
 
   const echarts = compiled.echarts ?? null;
