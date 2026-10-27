@@ -1,6 +1,6 @@
 {
   "name": "sql-to-flint",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "The smallest bridge between SQL and Flint: annotate SQL result sets and get a portable Flint chart spec, compiled ECharts options, and BI-grade diagnostics.",
   "type": "module",
   "main": "./dist/index.js",
