@@ -28,8 +28,11 @@ describe('inferSemanticType temporal', () => {
   });
 
   it('detects Date instances', () => {
-    expect(inferSemanticType('day', [new Date('2026-01-31')]).semanticType).toBe('Date');
-    expect(inferSemanticType('ts', [new Date('2026-01-31T10:30:00')]).semanticType).toBe('DateTime');
+    // Local-time constructors keep this assertion timezone-independent.
+    expect(inferSemanticType('day', [new Date(2026, 0, 31)]).semanticType).toBe('Date');
+    expect(inferSemanticType('ts', [new Date(2026, 0, 31, 10, 30, 0)]).semanticType).toBe(
+      'DateTime',
+    );
   });
 });
 
