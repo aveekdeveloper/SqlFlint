@@ -60,6 +60,8 @@ export interface ManifestItem {
   blockType: DashboardBlockType;
   config: Record<string, unknown> | null;
   layout: Layout;
+  /** Fields without a first-class annotation, round-tripped via `-- @extra:`. */
+  extra?: Record<string, unknown>;
 }
 
 export type ManifestFilterType =
@@ -78,6 +80,8 @@ export interface ManifestFilter {
   sql?: string;
   values?: string[];
   defaultValue?: string | string[] | null;
+  /** Fields without a first-class annotation, round-tripped via `-- @extra:`. */
+  extra?: Record<string, unknown>;
 }
 
 export interface ManifestDashboard {
@@ -87,6 +91,8 @@ export interface ManifestDashboard {
   theme?: string;
   colors?: string[];
   items: ManifestItem[];
+  /** Fields without a first-class annotation, round-tripped via `-- @extra:`. */
+  extra?: Record<string, unknown>;
 }
 
 export interface ManifestDiagnostic extends Diagnostic {
@@ -98,6 +104,12 @@ export interface ParseManifestResult {
   dashboard: ManifestDashboard;
   diagnostics: ManifestDiagnostic[];
 }
+
+/**
+ * Version of the manifest grammar. Manifests declare it with `-- @spec: N`.
+ * The parser accepts anything up to this value and rejects newer documents.
+ */
+export const MANIFEST_SPEC_VERSION = 1;
 
 const BLOCK_LINE = /^--\s*@block:\s*(.*?)\s*$/;
 const FILTER_LINE = /^--\s*@filter:\s*(.*?)\s*$/;
@@ -119,6 +131,7 @@ const MANIFEST_KEYS = new Set([
   'timeformat',
   'xformat',
   'yformat',
+  'extra',
 ]);
 const TRUTHY = new Set(['true', 'yes', '1', 'on']);
 const FILTER_TYPES: readonly ManifestFilterType[] = [
@@ -141,6 +154,38 @@ const oneLine = (value: string | null | undefined): string =>
   (value ?? '').replace(/\r?\n/g, ' ').trim();
 
 const escapeMarkdownBody = (value: string): string => value.replace(/\*\//g, '* /').trim();
+
+const extraLine = (extra?: Record<string, unknown>): string | null =>
+  extra && Object.keys(extra).length > 0 ? `-- @extra: ${JSON.stringify(extra)}` : null;
+
+function parseExtra(
+  value: string | undefined,
+  owner: string,
+  diagnostics: ManifestDiagnostic[],
+): Record<string, unknown> | undefined {
+  if (value === undefined || value.trim() === '') return undefined;
+  try {
+    const parsed: unknown = JSON.parse(value);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      diagnostics.push({
+        severity: 'error',
+        code: 'INVALID_EXTRA',
+        message: `@extra on '${owner}' must be a JSON object.`,
+        block: owner,
+      });
+      return undefined;
+    }
+    return parsed as Record<string, unknown>;
+  } catch {
+    diagnostics.push({
+      severity: 'error',
+      code: 'INVALID_EXTRA',
+      message: `@extra on '${owner}' is not valid JSON.`,
+      block: owner,
+    });
+    return undefined;
+  }
+}
 
 function parseLayout(value: string | undefined): Layout | null {
   if (!value) return null;
@@ -337,13 +382,18 @@ export function serializeManifest(
   savedQueries: ManifestSavedQuery[] = [],
 ): string {
   const byId = new Map(connections.map((connection) => [connection.id, connection.name]));
-  const lines: string[] = [`-- @dashboard: ${oneLine(dashboard.name) || 'Untitled dashboard'}`];
+  const lines: string[] = [
+    `-- @spec: ${MANIFEST_SPEC_VERSION}`,
+    `-- @dashboard: ${oneLine(dashboard.name) || 'Untitled dashboard'}`,
+  ];
   if (dashboard.description) lines.push(`-- @description: ${oneLine(dashboard.description)}`);
   lines.push('-- @grid: 12');
   if (dashboard.theme) lines.push(`-- @theme: ${oneLine(dashboard.theme)}`);
   if (dashboard.colors?.length) {
     lines.push(`-- @colors: ${dashboard.colors.map(oneLine).join(', ')}`);
   }
+  const dashboardExtra = extraLine(dashboard.extra);
+  if (dashboardExtra) lines.push(dashboardExtra);
 
   for (const filter of dashboard.filters) {
     const connection = filter.connectionId ? byId.get(filter.connectionId) : undefined;
@@ -364,6 +414,8 @@ export function serializeManifest(
         : oneLine(String(filter.defaultValue));
       lines.push(`-- @default: ${value}`);
     }
+    const filterExtra = extraLine(filter.extra);
+    if (filterExtra) lines.push(filterExtra);
   }
 
   for (const item of dashboard.items) {
@@ -377,6 +429,8 @@ export function serializeManifest(
       if (savedQuery) lines.push(`-- @saved-query: ${oneLine(savedQuery.name)}`);
     }
     lines.push(...configAnnotations(item.blockType, item.config));
+    const itemExtra = extraLine(item.extra);
+    if (itemExtra) lines.push(itemExtra);
 
     if (item.blockType === 'text') {
       const markdown = escapeMarkdownBody(
@@ -415,6 +469,25 @@ export function parseManifest(
   const description = dashboardAnnotations.description?.trim() || null;
   const dashboardTheme = dashboardAnnotations.theme?.trim();
   const dashboardColors = dashboardAnnotations.colors?.trim();
+
+  const specRaw = dashboardAnnotations.spec?.trim();
+  if (specRaw) {
+    const spec = Number(specRaw);
+    if (!Number.isInteger(spec) || spec < 1) {
+      diagnostics.push({
+        severity: 'error',
+        code: 'INVALID_SPEC',
+        message: `@spec '${specRaw}' is not a valid manifest spec version.`,
+      });
+    } else if (spec > MANIFEST_SPEC_VERSION) {
+      diagnostics.push({
+        severity: 'error',
+        code: 'UNSUPPORTED_SPEC',
+        message: `Manifest spec ${spec} is newer than the supported version ${MANIFEST_SPEC_VERSION}.`,
+      });
+    }
+  }
+  const dashboardExtra = parseExtra(dashboardAnnotations.extra, name, diagnostics);
   const byName = new Map<string, ManifestConnection>();
   for (const connection of connections) {
     const key = connection.name.trim().toLowerCase();
@@ -483,6 +556,7 @@ export function parseManifest(
       sql: annotations.sql?.trim() || undefined,
       values,
       defaultValue,
+      extra: parseExtra(annotations.extra, name, diagnostics),
     });
   }
 
@@ -677,6 +751,7 @@ export function parseManifest(
       blockType: type,
       config: configFor(type, annotations, markdown),
       layout,
+      extra: parseExtra(annotations.extra, title, diagnostics),
     });
   });
 
@@ -701,6 +776,7 @@ export function parseManifest(
             .filter(Boolean)
         : undefined,
       items,
+      extra: dashboardExtra,
     },
     diagnostics,
   };

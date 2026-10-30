@@ -6,6 +6,7 @@ export {
   setAnnotation,
 } from './annotations.js';
 export {
+  MANIFEST_SPEC_VERSION,
   metricConfig,
   parseDashboardManifest,
   parseManifest,

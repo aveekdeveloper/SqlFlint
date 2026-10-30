@@ -15,6 +15,7 @@ const savedQueries: ManifestSavedQuery[] = [
 const fullDashboard: ManifestDashboard = {
   name: 'Revenue',
   description: 'Quarterly overview',
+  extra: { refreshSeconds: 300 },
   filters: [
     {
       name: 'Region',
@@ -100,6 +101,7 @@ describe('serializeManifest', () => {
 
     expect(text).toBe(
       [
+        '-- @spec: 1',
         '-- @dashboard: Revenue',
         '-- @description: Quarterly overview',
         '-- @grid: 12',
@@ -286,6 +288,48 @@ describe('parseManifest', () => {
     const { dashboard, diagnostics } = parseManifest(text, connections);
     expect(diagnostics).toEqual([]);
     expect(dashboard.name).toBe('Versioned');
+  });
+
+  it('round-trips @extra payloads at dashboard and block level', () => {
+    const text = serializeManifest(fullDashboard, connections, savedQueries);
+    expect(text).toContain('-- @extra: {"refreshSeconds":300}');
+
+    const { dashboard, diagnostics } = parseManifest(text, connections, savedQueries);
+    expect(diagnostics).toEqual([]);
+    expect(dashboard.extra).toEqual({ refreshSeconds: 300 });
+  });
+
+  it('reports an unsupported spec version', () => {
+    const { diagnostics } = parseManifest(
+      ['-- @spec: 99', '-- @dashboard: Future', '', '-- @block: Chart', '-- @type: chart', 'SELECT 1 AS x', ''].join('\n'),
+      connections,
+    );
+
+    expect(diagnostics).toContainEqual(
+      expect.objectContaining({ severity: 'error', code: 'UNSUPPORTED_SPEC' }),
+    );
+  });
+
+  it('reports malformed @extra JSON', () => {
+    const { diagnostics } = parseManifest(
+      [
+        '-- @spec: 1',
+        '-- @dashboard: Broken',
+        '',
+        '-- @block: Chart',
+        '-- @type: chart',
+        '-- @layout: 0,0,6,4',
+        '-- @connection: 1',
+        '-- @extra: {nope',
+        'SELECT 1 AS x',
+        '',
+      ].join('\n'),
+      connections,
+    );
+
+    expect(diagnostics).toContainEqual(
+      expect.objectContaining({ severity: 'error', code: 'INVALID_EXTRA' }),
+    );
   });
 });
 

@@ -155,6 +155,61 @@ temporal (`YearMonth`, `Date`, `Quarter`, ...), measures (`Price`,
 Every compile returns `diagnostics: { severity, code, message, column? }[]`.
 See the viz grammar doc for the full code list.
 
+## Dashboards
+
+A dashboard is also just a SQL file. `parseManifest` / `serializeManifest`
+read and write one document that holds every block:
+
+```sql
+-- @spec: 1
+-- @dashboard: Revenue
+-- @description: Quarterly overview
+-- @grid: 12
+
+-- @block: By month
+-- @type: chart
+-- @layout: 0,0,6,4
+-- @connection: warehouse
+-- @viz: line
+-- @x: month
+-- @y: revenue
+SELECT month, revenue FROM sales
+
+-- @block: Total
+-- @type: metric
+-- @layout: 6,0,3,3
+-- @connection: warehouse
+-- @metric: total
+SELECT SUM(revenue) AS total FROM sales
+```
+
+```ts
+import { parseManifest, serializeManifest } from 'sql-to-flint';
+
+const { dashboard, diagnostics } = parseManifest(code, connections, savedQueries);
+const canonical = serializeManifest(dashboard, connections, savedQueries);
+```
+
+- `@spec` declares the grammar version; newer documents are rejected with
+  `UNSUPPORTED_SPEC`, so consumers never silently misread them.
+- Block types: `chart`, `metric`, `table`, `text`. Chart annotations
+  (`@viz`, `@x`, `@y`, ...) stay in the block's SQL and compile as usual.
+- `@extra: {"...": ...}` round-trips fields that have no first-class
+  annotation. (`@x` is already the chart's x-encoding.)
+- Connections and saved queries resolve by name or id; `serializeManifest`
+  always emits ids so output is stable.
+
+The same operations are available from the CLI:
+
+```bash
+sqlflint manifest spec                                       # print the spec version
+sqlflint manifest check dashboard.sql --connections '[...]'   # exit 1 on errors
+sqlflint manifest check dashboard.sql --json                  # machine-readable
+sqlflint manifest format dashboard.sql --connections '[...]'  # canonical output
+```
+
+`--connections` accepts `[{"id":1,"name":"warehouse"}]` or `{"1":"warehouse"}`.
+
 ## Use with your coding agent
 
 Point your agent at the skill file and let it run the loop:
