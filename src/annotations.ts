@@ -1,4 +1,8 @@
-const ANNOTATION_PATTERN = /^--\s*@([a-zA-Z0-9_]+):\s*(.*?)\s*$/;
+/**
+ * `-- @key: value`. Keys may contain letters, digits, `_` and `-`
+ * (hyphenated keys such as `@saved-query` are part of the manifest grammar).
+ */
+export const ANNOTATION_PATTERN = /^--\s*@([a-zA-Z0-9_-]+):\s*(.*?)\s*$/;
 
 /**
  * Parse only leading SQL comment annotations.
